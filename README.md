@@ -1,6 +1,6 @@
 # 刊会通 KanHuiTong (kht)
 
-> 本软件是在 [ShowJCR](https://github.com/hitfyd/ShowJCR)（作者 *hitfyd*）基础上的二次开发，开源协议遵循原项目的 **GNU GPL v3**，详见 [LICENSE](LICENSE)。
+> 本软件是在 [ShowJCR](https://github.com/hitfyd/ShowJCR) 基础上的二次开发，开源协议遵循原项目的 **GNU GPL v3**，详见 [LICENSE](LICENSE)。
 
 期刊分区与影响因子一站式查询工具，基于 Qt 6 Widgets + SQLite。
 
@@ -15,7 +15,7 @@
 
 ![image1](README.assets/image1.png)
 
-主界面（最大化）：
+主界面：
 
 * 顶部扁平导航栏：`浏览` · `管理` · `设置` · `关于`，紧贴窗口左上、右边缘
 * 搜索行：左侧"期刊名称 / ISSN / EISSN"字段切换 + 右侧关键词联想输入框
@@ -111,31 +111,24 @@
 
 ---
 
-## 五、二次开发说明（v1.0 vs 原 ShowJCR v2026-1.2）
+## 五、二次开发说明
 
-本软件在原作者 *hitfyd* 的 [ShowJCR](https://github.com/hitfyd/ShowJCR) v2026-1.2 基础上进行了二次开发，主要变更如下：
+本软件在 [ShowJCR](https://github.com/hitfyd/ShowJCR) 基础上进行了二次开发，主要变更如下：
 
-### 5.1 重命名
-
-* 软件名：**ShowJCR → 刊会通 KanHuiTong (kht)**
-* 类名：`ShowJCR → Kht`；源文件 `showjcr.h/.cpp/.ui → kht.h/.cpp/.ui`
-* EXE：`showjcr.exe → kht.exe`；CMake target：`showjcr → kht`
-* 单实例共享内存 / 注册表键 / 日志文件名统一使用 `kht`
-
-### 5.2 顶部导航栏重设计
+### 5.1 顶部导航栏重设计
 
 * 原底部"开机自启动到托盘 / 关闭到托盘 / 监听剪切板 / 自动激活窗口"4 个 checkbox 整合到顶部"设置"下拉菜单，与对应的 checkbox 双向同步
 * 顶部扁平样式导航栏：`浏览` · `管理` · `设置` · `关于`，紧贴窗口左上边缘
 * 移除原"选择数据表"导航入口（保留 `show_selectTable()` 供托盘菜单调用）
 
-### 5.3 新增功能（v1.0）
+### 5.2 新增功能（v1.0）
 
 * **数据表浏览对话框**（`TableBrowserDialog`）：选表下拉、按字段筛选、字段显示/隐藏对话框（含全选/全不选）、拖拽列宽、导出全部/选中行
 * **数据表管理对话框**（`TableManagerDialog`）：导入（csv/xlsx，含 Journal 字段校验 + 命名格式校验 + 重名检测）、导出、编辑备注、删除（需输入表名确认）、上移/下移排序（立即持久化）
 * **元数据表 `__jcr_meta(table_name, remark, sort_order)**：备注和排序独立持久化；表显示名 = 元数据自定义 > 内置默认 > 原表名
 * **xlsx 自实现 I/O**（用 Qt6Core 私有头 `QZipReader`/`QZipWriter` + `QXmlStreamWriter` 生成/解析 5 个 XML 部件）
 
-### 5.4 兼容性
+### 5.3 兼容性
 
 * 仍可作为 32/64 位 Windows 应用运行（已用 llvm-mingw 22.17 工具链验证）
 * 数据库结构向后兼容：原 ShowJCR 的 `jcr.db` 可直接使用
@@ -193,14 +186,9 @@ python build.py
 
 ## 八、版权与许可
 
-本软件是 [ShowJCR](https://github.com/hitfyd/ShowJCR) 的二次开发衍生作品，遵循原项目的开源协议：
+本软件遵循 **GNU GPL v3** 开源协议（详见 [LICENSE](LICENSE) 文件），欢迎在此基础上自由使用与二次开发。
 
-```
-GNU GENERAL PUBLIC LICENSE
-   Version 3, 29 June 2007
-```
-
-详见 [LICENSE](LICENSE) 文件。
+> **免责声明**：本软件收录的期刊分区、影响因子等数据均来源于网络公开信息的搜集整理，仅供学习参考，不保证其准确性与完整性；相关数据版权归原发布方所有。如权利方认为存在侵权，请联系作者（rqwu@haut.edu.cn）予以删除。
 
 ---
 
@@ -208,5 +196,3 @@ GNU GENERAL PUBLIC LICENSE
 
 * 原作者 **hitfyd**：[https://github.com/hitfyd/ShowJCR](https://github.com/hitfyd/ShowJCR) —— 本软件的基础
 * **Qt 团队**：[https://www.qt.io](https://www.qt.io) —— 跨平台 UI 框架
-* **新锐学者**：[https://www.xr-scholar.com](https://www.xr-scholar.com) —— 新锐期刊分区表数据
-* **中科院分区表**：[advanced.fenqubiao.com](http://advanced.fenqubiao.com) —— 中科院分区表升级版数据
