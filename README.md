@@ -1,13 +1,8 @@
-# 刊会通 KanHuiTong (kht)
+# 刊会通 (KanHuiTong)
 
-> 本软件是在 [ShowJCR](https://github.com/hitfyd/ShowJCR) 基础上的二次开发，开源协议遵循原项目的 **GNU GPL v3**，详见 [LICENSE](LICENSE)。
+刊会通是一款基于 Qt 6 + SQLite 的学术期刊与会议信息一站式查询工具，支持期刊分区、影响因子、会议级别查询，并可导入自定义分区数据、灵活管理检索级别。
 
-期刊分区与影响因子一站式查询工具，基于 Qt 6 Widgets + SQLite。
-
-* **版本**：v1.0
-* **仓库**：[https://github.com/wuruiqi/kht](https://github.com/wuruiqi/kht)
-* **Release 下载**：[https://github.com/wuruiqi/kht/releases](https://github.com/wuruiqi/kht/releases)
-* **作者**：Ruiqi_Wu · rqwu@haut.edu.cn
+本软件在 [ShowJCR](https://github.com/hitfyd/ShowJCR) 基础上二次开发，开源协议遵循原项目的 **GNU GPL v3**，详见 [LICENSE](LICENSE)。
 
 ---
 
@@ -17,7 +12,7 @@
 
 主界面：
 
-* 顶部扁平导航栏：`浏览` · `管理` · `设置` · `关于`，紧贴窗口左上、右边缘
+* 顶部扁平导航栏：`浏览` · `管理` · `设置` · `关于`
 * 搜索行：左侧"期刊名称 / ISSN / EISSN"字段切换 + 右侧关键词联想输入框
 * 主结果区：按各数据表分类的期刊信息（年份、IF、大类分区、Top、小类分区等）
 
@@ -188,11 +183,11 @@ python build.py
 
 本软件遵循 **GNU GPL v3** 开源协议（详见 [LICENSE](LICENSE) 文件），欢迎在此基础上自由使用与二次开发。
 
-> **免责声明**：本软件收录的期刊分区、影响因子等数据均来源于网络公开信息的搜集整理，仅供学习参考，不保证其准确性与完整性；相关数据版权归原发布方所有。如权利方认为存在侵权，请联系作者（rqwu@haut.edu.cn）予以删除。
+> **免责声明**：本软件收录的期刊分区、影响因子等数据均来源于网络公开信息的搜集整理，仅供学习参考，不保证其准确性与完整性；相关数据版权归原发布方所有。如权利方认为存在侵权，请联系作者予以删除。
 
 ---
 
 ## 九、致谢
 
-* 原作者 **hitfyd**：[https://github.com/hitfyd/ShowJCR](https://github.com/hitfyd/ShowJCR) —— 本软件的基础
-* **Qt 团队**：[https://www.qt.io](https://www.qt.io) —— 跨平台 UI 框架
+* ShowJCR：[https://github.com/hitfyd/ShowJCR](https://github.com/hitfyd/ShowJCR)
+* Qt 团队：[https://www.qt.io](https://www.qt.io)
