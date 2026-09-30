@@ -23,7 +23,7 @@
 #include <QBrush>
 
 const QString Kht::author = "Ruiqi_Wu";
-const QString Kht::version = "v1.0";
+const QString Kht::version = "v1.1";
 const QString Kht::email = "rqwu@haut.edu.cn";
 const QString Kht::codeURL = "https://github.com/wuruiqi/kht";
 const QString Kht::updateURL = "https://github.com/wuruiqi/kht/releases";
@@ -70,6 +70,9 @@ Kht::Kht(QWidget *parent)
 
     //初始化期刊数据库
     sqliteDB = new SqliteDB(appDir, datasetName);
+
+    //检索字段增加“CN号”（中文期刊常用检索键；无该字段的表会自动变灰）
+    ui->comboBox_searchField->addItem(QStringLiteral("CN号"));
 
     //设置期刊名称输入框提示文字
     ui->lineEdit_journalName->setPlaceholderText(cueWords[0]);
@@ -176,12 +179,19 @@ void Kht::run(const QString &input)
 //        ui->lineEdit_journalName->setText(cueWords[0]);
         return;
     }
-    //检查输入是否在期刊数据库中，不区分大小写；如果输入为带'.'的缩写，删除'.'后重新检查
-    if(!sqliteDB->getAllJournalNames().contains(journalName, Qt::CaseInsensitive) and !sqliteDB->getAllJournalNames().contains(journalName.remove('.'), Qt::CaseInsensitive)){   //不区分大小写
-        if(!ui->lineEdit_journalName->text().contains(cueWords[1])){
-            ui->lineEdit_journalName->setText(cueWords[1] + ui->lineEdit_journalName->text());
+    //检查输入是否在期刊数据库中（含规范化变体，如全角括号/连字符差异）；
+    //如果输入为带'.'的缩写，删除'.'后重新检查
+    {
+        QString alt = journalName;
+        alt.remove('.');
+        if(!sqliteDB->hasKey(journalName) && !sqliteDB->hasKey(alt)){
+            if(!ui->lineEdit_journalName->text().contains(cueWords[1])){
+                ui->lineEdit_journalName->setText(cueWords[1] + ui->lineEdit_journalName->text());
+            }
+            return;
         }
-        return;
+        if(sqliteDB->hasKey(alt) && alt != journalName)
+            journalName = alt;   //命中去点后的写法，后续用该值查询
     }
     //输入正确，执行查询
     qDebug() << "select the journal:" << journalName;
@@ -199,9 +209,28 @@ void Kht::updateGUI()
     model->setColumnCount(2);
 
     QString prevTable;
+    QString prevCategory;
     int row = 0;
     for(int i = 0; i < journalInfo.size(); i++){
         const JournalField &info = journalInfo[i];
+        // 类别变化时插入家族标题行（外文期刊/中文核心期刊）
+        QString category = SqliteDB::categoryOf(info.table);
+        if(category != prevCategory){
+            QFont familyFont;
+            familyFont.setItalic(true);
+            QStandardItem* familyItem0 = new QStandardItem(QStringLiteral("── %1 ──").arg(category));
+            QStandardItem* familyItem1 = new QStandardItem(QString());
+            familyItem0->setBackground(QBrush(QColor(220, 224, 230)));
+            familyItem1->setBackground(QBrush(QColor(220, 224, 230)));
+            familyItem0->setFont(familyFont);
+            familyItem0->setTextAlignment(Qt::AlignCenter);
+            familyItem0->setEditable(false);
+            familyItem1->setEditable(false);
+            model->setItem(row, 0, familyItem0);
+            model->setItem(row, 1, familyItem1);
+            row++;
+            prevCategory = category;
+        }
         // 表变化时插入表名标题行（分割线），便于区分各表来源
         if(info.table != prevTable){
             QFont titleFont;
@@ -359,6 +388,7 @@ void Kht::on_comboBox_searchField_currentIndexChanged(int index)
     case 0: fieldName = "Journal"; placeholder = "请输入期刊名称！"; break;
     case 1: fieldName = "ISSN";    placeholder = "请输入ISSN！";      break;
     case 2: fieldName = "EISSN";   placeholder = "请输入EISSN！";     break;
+    case 3: fieldName = QStringLiteral("CN号"); placeholder = QStringLiteral("请输入CN号！"); break;
     default: fieldName = "Journal"; placeholder = "请输入期刊名称！"; break;
     }
     ui->lineEdit_journalName->setPlaceholderText(placeholder);
@@ -399,7 +429,7 @@ void Kht::show_selectTable()
     }
 }
 
-//构建主界面数据表勾选面板
+//构建主界面数据表勾选面板（按数据集类别分为外文期刊/中文核心期刊两组，受顶部范围切换过滤）
 void Kht::buildTableSelectPanel()
 {
     tableSelectGroupBox = new QGroupBox(tr("选择数据表（勾选后即时生效）"), this);
@@ -414,28 +444,53 @@ void Kht::buildTableSelectPanel()
     btnLayout->addStretch();
     groupLayout->addLayout(btnLayout);
 
-    //勾选项：以中文备注名称显示，方便直接识别
-    QGridLayout *grid = new QGridLayout();
-    const QStringList allTables = sqliteDB->getAllTableNames();
+    //按类别分组：外文期刊 / 中文核心期刊；各组内以中文备注名称显示，3列网格
+    foreignGroupBox = new QGroupBox(tr("外文期刊（分区/影响因子/CCF/预警）"), tableSelectGroupBox);
+    chineseGroupBox = new QGroupBox(tr("中文核心期刊（CSCD/CSSCI/北大核心）"), tableSelectGroupBox);
+    QGridLayout *gridForeign = new QGridLayout(foreignGroupBox);
+    QGridLayout *gridChinese = new QGridLayout(chineseGroupBox);
     const int columns = 3;
     tableCheckBoxes.clear();
-    for(int i = 0; i < allTables.size(); ++i){
-        const QString &table = allTables.at(i);
-        QCheckBox *cb = new QCheckBox(SqliteDB::tableChineseName(table), tableSelectGroupBox);
+    int rowF = 0, rowC = 0, colF = 0, colC = 0;
+    const QStringList allTables = sqliteDB->getAllTableNames();
+    for(const QString &table : allTables){
+        QCheckBox *cb = new QCheckBox(SqliteDB::tableChineseName(table));
         cb->setToolTip(table);
         cb->setProperty("tableName", table);
         cb->setChecked(selectedTables.contains(table));
         connect(cb, &QCheckBox::toggled, this, &Kht::onTableSelectToggled);
-        grid->addWidget(cb, i / columns, i % columns);
+        if(SqliteDB::categoryOf(table) == QStringLiteral("中文核心期刊")){
+            gridChinese->addWidget(cb, rowC, colC);
+            if(++colC >= columns){ colC = 0; ++rowC; }
+            cb->setParent(chineseGroupBox);
+        } else {
+            gridForeign->addWidget(cb, rowF, colF);
+            if(++colF >= columns){ colF = 0; ++rowF; }
+        }
         tableCheckBoxes.append(cb);
     }
-    groupLayout->addLayout(grid);
+    QVBoxLayout *subLayout = new QVBoxLayout();
+    subLayout->addWidget(foreignGroupBox);
+    subLayout->addWidget(chineseGroupBox);
+    groupLayout->addLayout(subLayout);
 
     connect(btnSelectAll, &QPushButton::clicked, this, &Kht::selectAllTables);
     connect(btnSelectNone, &QPushButton::clicked, this, &Kht::selectNoTables);
 
     //追加到主布局末尾（顶部导航栏、检索区、结果表之后）
     ui->verticalLayout->addWidget(tableSelectGroupBox);
+
+    //按当前范围过滤分组可见性
+    onScopeChanged(scopeCombo ? scopeCombo->currentIndex() : 0);
+}
+
+//数据集范围切换：仅过滤分组面板可见性，不改变已勾选的表
+void Kht::onScopeChanged(int index)
+{
+    if(!foreignGroupBox || !chineseGroupBox)
+        return;
+    foreignGroupBox->setVisible(index != 2);       // 2 = 中文核心期刊
+    chineseGroupBox->setVisible(index != 1);       // 1 = 外文期刊
 }
 
 //根据 selectedTables 同步主界面勾选状态
@@ -548,6 +603,7 @@ QString Kht::currentSearchField() const
     switch(ui->comboBox_searchField->currentIndex()){
     case 1: return "ISSN";
     case 2: return "EISSN";
+    case 3: return QStringLiteral("CN号");
     default: return "Journal";
     }
 }
@@ -569,6 +625,17 @@ void Kht::buildNavigationBar()
     QHBoxLayout *nav = new QHBoxLayout(navBar);
     nav->setContentsMargins(8, 0, 8, 0);
     nav->setSpacing(2);
+
+    //数据集范围切换（全部/外文期刊/中文核心期刊），用于过滤下方勾选面板
+    scopeCombo = new QComboBox(navBar);
+    scopeCombo->addItem(tr("全部数据"));
+    scopeCombo->addItem(tr("外文期刊"));
+    scopeCombo->addItem(tr("中文核心期刊"));
+    scopeCombo->setToolTip(tr("按数据集类别过滤下方数据表勾选面板"));
+    nav->addWidget(new QLabel(tr("范围:"), navBar));
+    nav->addWidget(scopeCombo);
+    nav->addSpacing(12);
+    connect(scopeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &Kht::onScopeChanged);
 
     //导航项（设置/关于紧随其后）
     QPushButton *btnBrowse = new QPushButton(tr("浏览"), navBar);

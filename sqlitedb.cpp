@@ -8,6 +8,9 @@
 #include <QRegularExpressionMatch>
 #include <QFile>
 #include <algorithm>
+#include <QSet>
+
+static QString normColumnFor(const QStringList &fields, const QString &field);
 
 // 静态备注缓存定义
 QHash<QString, QString> SqliteDB::s_remarks;
@@ -36,8 +39,55 @@ static QString hardcodedRemark(const QString &tableName)
         {"GJQKYJMD2023",      "国际预警期刊名单2023"},
         {"GJQKYJMD2024",      "国际预警期刊名单2024"},
         {"GJQKYJMD2025",      "国际预警期刊名单2025"},
+        {"CSCD2017",          "CSCD中国科学引文目录2017-2018"},
+        {"CSCD2019",          "CSCD中国科学引文目录2019-2020"},
+        {"CSCD2021",          "CSCD中国科学引文目录2021-2022"},
+        {"CSCD2023",          "CSCD中国科学引文目录2023-2024"},
+        {"CSSCI2014",         "CSSCI南大核心目录2014-2016"},
+        {"CSSCI2017",         "CSSCI南大核心目录2017-2018"},
+        {"CSSCI2019",         "CSSCI南大核心目录2019-2020"},
+        {"CSSCI2021",         "CSSCI南大核心目录2021-2022"},
+        {"CSSCI2023",         "CSSCI南大核心目录2023-2024"},
+        {"BDHX2014",          "北大中文核心目录2014版"},
+        {"BDHX2017",          "北大中文核心目录2017版"},
+        {"BDHX2020",          "北大中文核心目录2020版"},
+        {"BDHX2023",          "北大中文核心目录2023版"},
     };
     return remarkMap.value(tableName, QString());
+}
+
+// 返回数据表所属类别（用于主界面分组展示）：中文核心目录表名以 CSCD/CSSCI/BDHX 开头
+QString SqliteDB::categoryOf(const QString &tableName)
+{
+    static const QStringList chinesePrefixes = {"CSCD", "CSSCI", "BDHX"};
+    foreach(const QString &p, chinesePrefixes){
+        if(tableName.startsWith(p, Qt::CaseInsensitive))
+            return QStringLiteral("中文核心期刊");
+    }
+    return QStringLiteral("外文期刊");
+}
+
+// 检索键规范化：兼容字符折叠（NFKC，全角字母数字括号转半角）、全角标点统一、去所有空白、转小写
+QString SqliteDB::normalizeKey(const QString &value)
+{
+    QString s = value.normalized(QString::NormalizationForm_KC);
+    s.replace(QStringLiteral("（"), QStringLiteral("(")).replace(QStringLiteral("）"), QStringLiteral(")"))
+     .replace(QStringLiteral("："), QStringLiteral(":")).replace(QStringLiteral("．"), QStringLiteral("."))
+     .replace(QStringLiteral("–"), QStringLiteral("-")).replace(QStringLiteral("—"), QStringLiteral("-")).replace(QStringLiteral("－"), QStringLiteral("-"));
+    QString out;
+    out.reserve(s.size());
+    for(const QChar &ch : s){
+        if(ch.isSpace())
+            continue;
+        out.append(ch);
+    }
+    return out.toLower();
+}
+
+// 在规范化基础上去连字符（ISSN/CN号 常见输写差异：1002-4921 / 10024921）
+QString SqliteDB::normalizeCompact(const QString &value)
+{
+    return normalizeKey(value).remove('-');
 }
 
 SqliteDB::SqliteDB(const QDir &appDir, const QString &datasetName, QObject *parent) : QObject(parent)
@@ -106,6 +156,16 @@ void SqliteDB::setSearchField(const QString &field)
     selectAllJournalNames();
 }
 
+// 判断输入值是否命中任一已选表的检索键（含规范化变体，用于输入校验）
+bool SqliteDB::hasKey(const QString &value)
+{
+    foreach(const QStringList &keyNames, allKeyNames){
+        if(keyNames.contains(value, Qt::CaseInsensitive))
+            return true;
+    }
+    return false;
+}
+
 // 返回包含指定字段的表名（用于主界面变灰判断）
 QStringList SqliteDB::getTablesWithField(const QString &field)
 {
@@ -141,21 +201,35 @@ QList<JournalField> SqliteDB::queryJournalInfo(const QString &value)
             const QString &table = tablePrimaryKeys[i].first;
             const QString &primaryKey = tablePrimaryKeys[i].second;
             if(database.isOpen()){
-                QString select;
-                if(primaryKey.contains('/')){
-                    //合并字段（如 ISSN/EISSN），值以"/"分隔，用模糊匹配
-                    select = "select * from " + table + " where " + primaryKey + " like '%" + value + "%' COLLATE NOCASE";
+                const QStringList &fields = tableFields[tableNames.indexOf(table)];
+                QString normCol = normColumnFor(fields, searchField);
+                QString normValue;
+                if(!normCol.isEmpty()){
+                    //ISSN/EISSN/CN号 用去连字符的紧凑规范化，其余用通用规范化
+                    if(searchField.compare("Journal", Qt::CaseInsensitive)==0)
+                        normValue = normalizeKey(value);
+                    else
+                        normValue = normalizeCompact(value);
                 }
-                else{
-                    select = "select * from " + table + " where " + primaryKey + " = '" + value + "' COLLATE NOCASE";   //设置查询不区分大小写
+                if (!query.prepare("select * from " + quoteIdent(table) + " where " +
+                                   (normCol.isEmpty()
+                                        ? ((primaryKey.contains('/')
+                                                ? quoteIdent(primaryKey) + " like '%' || ? || '%' COLLATE NOCASE"   //合并字段（如 ISSN/EISSN），值以“/”分隔，用模糊匹配
+                                                : quoteIdent(primaryKey) + " = ? COLLATE NOCASE"))                  //设置查询不区分大小写
+                                        : quoteIdent(normCol) + " = ? COLLATE NOCASE"))){
+                    qWarning() << "Error: Failed to prepare select " << table << __FUNCTION__ << query.lastError().text();
                 }
-                if (!query.exec(select)){
-                    qWarning() << "Error: Failed to select " << table << __FUNCTION__ << database.lastError();
+                query.addBindValue(normCol.isEmpty() ? QVariant(value) : QVariant(normValue));
+                if (!query.exec()){
+                    qWarning() << "Error: Failed to select " << table << __FUNCTION__ << query.lastError().text();
                 }
                 //CCF推荐期刊中不同领域存在重复的期刊
                 while (query.next()){
                     QStringList fieldNames = tableFields[tableNames.indexOf(table)];
                     foreach(const QString &fieldName, fieldNames){
+                        //跳过内部规范化辅助列，不在结果中显示
+                        if(fieldName.startsWith("__"))
+                            continue;
                         QString fieldValue = query.value(fieldName).toString();
                         if(fieldValue.isEmpty() || fieldValue.isNull())
                             continue;
@@ -242,6 +316,29 @@ void SqliteDB::selectTableFields()
     Q_ASSERT(tableNames.size() == tableFields.size());
 }
 
+// 根据检索字段与表字段，返回该表对应的规范化辅助列名（导入时自动生成，形如 __norm_journal），无则返回空
+static QString normColumnFor(const QStringList &fields, const QString &field)
+{
+    auto has = [&fields](const QString &n){
+        foreach(const QString &f, fields) if(f.compare(n, Qt::CaseInsensitive)==0) return true;
+        return false;
+    };
+    if(field.compare("Journal", Qt::CaseInsensitive)==0){
+        return has("__norm_journal") ? QStringLiteral("__norm_journal") : QString();
+    }
+    if(field.compare("CN号", Qt::CaseInsensitive)==0 || field.compare("CN", Qt::CaseInsensitive)==0){
+        return has("__norm_cn") ? QStringLiteral("__norm_cn") : QString();
+    }
+    if(field.compare("ISSN", Qt::CaseInsensitive)==0){
+        return has("__norm_issn") ? QStringLiteral("__norm_issn") : QString();
+    }
+    if(field.compare("EISSN", Qt::CaseInsensitive)==0){
+        if(has("__norm_eissn")) return QStringLiteral("__norm_eissn");
+        return has("__norm_issn") ? QStringLiteral("__norm_issn") : QString();
+    }
+    return QString();
+}
+
 void SqliteDB::setTablePrimaryKeys()
 {
     tablePrimaryKeys.clear();
@@ -270,6 +367,11 @@ void SqliteDB::setTablePrimaryKeys()
 
 void SqliteDB::selectAllJournalNames()
 {
+    //规范化去重集合：已收录名字的规范化键（跨表累计，避免 O(n^2) 比较）
+    QSet<QString> normalizedExisting;
+    normalizedExisting.reserve(allJournalNamesList.size() * 2);
+    foreach(const QString &existing, allJournalNamesList)
+        normalizedExisting.insert(normalizeKey(existing));
     allKeyNames.clear();
     allJournalNamesList.clear();
     QSqlQuery query;
@@ -277,8 +379,9 @@ void SqliteDB::selectAllJournalNames()
         const QString &table = pair.first;
         const QString &primaryKey = pair.second;
         QStringList keyNames;
+        int rawCount = 0;   // 原始键值数量（联想列表只取原始写法）
         if(database.isOpen()){
-            QString select = "select " + primaryKey + " from " + table;
+            QString select = "select " + quoteIdent(primaryKey) + " from " + quoteIdent(table);
             if (!query.exec(select)){
                 qWarning() << "Error: Failed to select" << table << __FUNCTION__ << database.lastError();
             }
@@ -286,14 +389,30 @@ void SqliteDB::selectAllJournalNames()
                 QString journalName = query.value(0).toString();
                 keyNames << journalName;
             }
+            rawCount = keyNames.size();
+            //规范化键值也纳入检索目录（含 __norm 辅助列的表），支持全半角/括号/连字符变体输入
+            const QStringList &fields = tableFields[tableNames.indexOf(table)];
+            QString normCol = normColumnFor(fields, searchField);
+            if(!normCol.isEmpty()){
+                if (query.exec("select " + quoteIdent(normCol) + " from " + quoteIdent(table))){
+                    while (query.next()){
+                        QString nv = query.value(0).toString();
+                        if(!nv.isEmpty())
+                            keyNames << nv;
+                    }
+                }
+            }
         }
-        //        qDebug() << keyNames.length();
         allKeyNames << keyNames;
-        //        allJournalNamesList += keyNames;
-        //输入提示项去除大小写不一致的重复项
-        foreach(const QString &keyName, keyNames){
-            if(!allJournalNamesList.contains(keyName, Qt::CaseInsensitive))
+        //输入提示项仅保留原始写法，并用规范化比较去重（避免全半角变体产生重复提示）
+        //已有名字的规范化结果只算一次放入哈希集合，避免 O(n^2) 重复规范化导致启动卡死
+        for(int ki = 0; ki < rawCount && ki < keyNames.size(); ++ki){
+            const QString &keyName = keyNames.at(ki);
+            QString nk = normalizeKey(keyName);
+            if(!normalizedExisting.contains(nk)){
                 allJournalNamesList << keyName;
+                normalizedExisting.insert(nk);
+            }
         }
     }
     qDebug() << allJournalNamesList.length();
@@ -319,6 +438,14 @@ QString SqliteDB::findSearchField(const QStringList &fields, const QString &sear
             }
         }
     }
+    // 特殊：CN号 检索时，兼容字段名 "CN"（如 XR2026 表）
+    if(searchField.compare("CN号", Qt::CaseInsensitive) == 0){
+        foreach(const QString &f, fields){
+            if(f.compare("CN", Qt::CaseInsensitive) == 0){
+                return f;
+            }
+        }
+    }
     return QString();
 }
 
@@ -338,6 +465,9 @@ QStringList SqliteDB::sortSpecialStrings(const QStringList &input) {
         {"CCF",    2},   // CCF推荐目录
         {"CCFT",   2},   // CCF计算领域分级目录
         {"GJQKYJMD",3},  // 国际预警期刊名单
+        {"CSCD",    4},  // CSCD中国科学引文目录
+        {"CSSCI",   5},  // CSSCI南大核心目录
+        {"BDHX",    6},  // 北大中文核心目录
     };
     // 正则表达式提取前缀和4位年份
     const QRegularExpression kPattern("^(\\D+)(\\d{4})"); // 非数字前缀 + 4位年份
@@ -534,6 +664,34 @@ bool SqliteDB::importTable(const QString &tableName, const QStringList &headers,
         colNames << c;
         colDefs << quoteIdent(c) + QStringLiteral(" TEXT");
     }
+
+    // 自动生成规范化辅助列（__norm_*，内部列，界面不显示）：
+    // 支持全半角/括号/空白/连字符变体检索；仅当对应源列存在时生成
+    QList<QPair<QString, int>> normCols;   // (辅助列名, 源列下标)
+    for (int i = 0; i < headers.size(); ++i) {
+        QString h = headers.at(i).trimmed();
+        QString normCol;
+        bool compact = false;
+        if (h.compare("Journal", Qt::CaseInsensitive) == 0) {
+            normCol = QStringLiteral("__norm_journal");
+        } else if (h.compare("ISSN", Qt::CaseInsensitive) == 0
+                   || h.compare("ISSN/EISSN", Qt::CaseInsensitive) == 0) {
+            normCol = QStringLiteral("__norm_issn");
+            compact = true;
+        } else if (h.compare("EISSN", Qt::CaseInsensitive) == 0) {
+            normCol = QStringLiteral("__norm_eissn");
+            compact = true;
+        } else if (h.compare("CN号", Qt::CaseInsensitive) == 0
+                   || h.compare("CN", Qt::CaseInsensitive) == 0) {
+            normCol = QStringLiteral("__norm_cn");
+            compact = true;
+        }
+        if (!normCol.isEmpty() && !colNames.contains(normCol)) {
+            normCols << qMakePair(normCol, compact ? i : i);
+            colNames << normCol;
+            colDefs << quoteIdent(normCol) + QStringLiteral(" TEXT");
+        }
+    }
     QSqlQuery query;
     if (!query.exec("CREATE TABLE " + quoteIdent(tableName) + " (" + colDefs.join(", ") + ")")) {
         if (errMsg) *errMsg = query.lastError().text();
@@ -546,16 +704,26 @@ bool SqliteDB::importTable(const QString &tableName, const QStringList &headers,
         qPlaceholders << QStringLiteral("?");
     }
     QString insertSql = "INSERT INTO " + quoteIdent(tableName) + " (" + qNames.join(", ") + ") VALUES (" + qPlaceholders.join(", ") + ")";
+    const int origColCount = headers.size();
 
     database.transaction();
     QSqlQuery ins;
     for (const QStringList &row : rows) {
         ins.prepare(insertSql);
         for (int i = 0; i < colNames.size(); ++i) {
-            if (i < row.size())
-                ins.addBindValue(row[i]);
-            else
-                ins.addBindValue(QString());
+            if (i < origColCount) {
+                ins.addBindValue(i < row.size() ? row[i] : QString());
+            } else {
+                // 规范化辅助列：由对应源列计算
+                QString normCol = colNames.at(i);
+                int srcIdx = -1;
+                for (const auto &p : normCols) {
+                    if (p.first.compare(normCol, Qt::CaseInsensitive) == 0) { srcIdx = p.second; break; }
+                }
+                QString srcVal = (srcIdx >= 0 && srcIdx < row.size()) ? row.at(srcIdx) : QString();
+                bool compact = !normCol.endsWith("journal", Qt::CaseInsensitive);
+                ins.addBindValue(compact ? normalizeCompact(srcVal) : normalizeKey(srcVal));
+            }
         }
         if (!ins.exec()) {
             database.rollback();

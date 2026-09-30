@@ -15,7 +15,7 @@ NINJA = r"D:\build-tools\Tools\Ninja\ninja.exe"
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 RELEASE_DIR = os.path.join(PROJECT_DIR, "release")
-DB_SRC = os.path.join(PROJECT_DIR, "中科院分区表及JCR原始数据文件", "jcr.db")
+DB_SRC = os.path.join(PROJECT_DIR, "jcr.db")
 
 env = os.environ.copy()
 env["PATH"] = os.path.join(MINGW_DIR, "bin") + ";" + env.get("PATH", "")

@@ -20,6 +20,7 @@ signals:
 
 private slots:
     void importTable();
+    void importFolder();
     void exportTable();
     void editRemark();
     void deleteTable();

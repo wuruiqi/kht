@@ -29,6 +29,10 @@ public:
     void setSearchField(const QString &field);               //  设置检索字段（Journal/ISSN/EISSN）
     QStringList getTablesWithField(const QString &field);    //  返回包含指定字段的表名，用于主界面变灰判断
     static QString tableChineseName(const QString &tableName);   //  返回数据表对应的中文备注名称
+    static QString categoryOf(const QString &tableName);         //  返回数据表所属类别（外文期刊/中文核心期刊）
+    static QString normalizeKey(const QString &value);           //  检索键规范化（全半角/空白/大小写）
+    static QString normalizeCompact(const QString &value);       //  在规范化基础上再去连字符（用于 ISSN/CN号）
+    bool hasKey(const QString &value);                           //  判断输入值是否命中任一已选表的检索键（含规范化变体）
 
     // ---- 数据表管理相关（Module 2）----
     void refreshTableList();    // 重新读取表列表、备注与排序（导入/删除后调用）

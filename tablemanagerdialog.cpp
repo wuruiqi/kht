@@ -42,6 +42,7 @@ TableManagerDialog::TableManagerDialog(SqliteDB *db, QWidget *parent)
 
     QHBoxLayout *btnLayout = new QHBoxLayout();
     QPushButton *btnImport = new QPushButton(tr("导入"), this);
+    QPushButton *btnImportFolder = new QPushButton(tr("批量导入"), this);
     QPushButton *btnExport = new QPushButton(tr("导出"), this);
     QPushButton *btnRemark = new QPushButton(tr("编辑备注"), this);
     QPushButton *btnDelete = new QPushButton(tr("删除"), this);
@@ -49,6 +50,7 @@ TableManagerDialog::TableManagerDialog(SqliteDB *db, QWidget *parent)
     QPushButton *btnDown = new QPushButton(tr("下移"), this);
     QPushButton *btnClose = new QPushButton(tr("关闭"), this);
     btnLayout->addWidget(btnImport);
+    btnLayout->addWidget(btnImportFolder);
     btnLayout->addWidget(btnExport);
     btnLayout->addWidget(btnRemark);
     btnLayout->addWidget(btnDelete);
@@ -59,6 +61,7 @@ TableManagerDialog::TableManagerDialog(SqliteDB *db, QWidget *parent)
     mainLayout->addLayout(btnLayout);
 
     connect(btnImport, &QPushButton::clicked, this, &TableManagerDialog::importTable);
+    connect(btnImportFolder, &QPushButton::clicked, this, &TableManagerDialog::importFolder);
     connect(btnExport, &QPushButton::clicked, this, &TableManagerDialog::exportTable);
     connect(btnRemark, &QPushButton::clicked, this, &TableManagerDialog::editRemark);
     connect(btnDelete, &QPushButton::clicked, this, &TableManagerDialog::deleteTable);
@@ -134,8 +137,9 @@ void TableManagerDialog::importTable()
         return;
     }
 
-    // 输入表名（默认用文件名）
+    // 输入表名（默认用文件名，自动去除 -UTF8 后缀）
     QString defaultName = QFileInfo(file).baseName();
+    defaultName.remove(QStringLiteral("-UTF8"), Qt::CaseInsensitive);
     bool ok = false;
     QString name = QInputDialog::getText(this, tr("数据表命名"),
         tr("请输入数据表名称（推荐：类别前缀 + 4位年份，如 JCR2026）："),
@@ -166,6 +170,65 @@ void TableManagerDialog::importTable()
     emit tablesChanged();
     QMessageBox::information(this, tr("导入成功"),
         tr("已导入数据表 %1，共 %2 条记录。").arg(name).arg(rows.size()));
+}
+
+// 批量导入：选择文件夹，一次导入目录下全部合规的 csv/xlsx 文件；
+// 表名自动取文件名（去 -UTF8 后缀），重名跳过，结果汇总提示
+void TableManagerDialog::importFolder()
+{
+    QString dir = QFileDialog::getExistingDirectory(this, tr("选择批量导入文件夹"));
+    if (dir.isEmpty())
+        return;
+    QDir d(dir);
+    QStringList files = d.entryList(QStringList() << "*.csv" << "*.xlsx", QDir::Files);
+    if (files.isEmpty()) {
+        QMessageBox::information(this, tr("批量导入"), tr("所选文件夹中没有 csv/xlsx 文件。"));
+        return;
+    }
+    int success = 0, skipped = 0, failed = 0;
+    QStringList msgs;
+    static const QRegularExpression re("^[A-Za-z_][A-Za-z0-9_]*$");
+    for (const QString &fn : files) {
+        QString path = d.filePath(fn);
+        QStringList headers;
+        QList<QStringList> rows;
+        QString err;
+        if (!TableIO::readFile(path, headers, rows, &err)) {
+            ++failed; msgs << fn + QStringLiteral("：读取失败（") + err + QStringLiteral("）");
+            continue;
+        }
+        bool hasJournal = false;
+        for (const QString &h : headers) {
+            if (h.compare(QStringLiteral("Journal"), Qt::CaseInsensitive) == 0) { hasJournal = true; break; }
+        }
+        if (!hasJournal) {
+            ++failed; msgs << fn + QStringLiteral("：缺少 Journal 字段");
+            continue;
+        }
+        if (rows.isEmpty()) {
+            ++failed; msgs << fn + QStringLiteral("：无数据行");
+            continue;
+        }
+        QString name = QFileInfo(fn).baseName();
+        name.remove(QStringLiteral("-UTF8"), Qt::CaseInsensitive);
+        if (!re.match(name).hasMatch()) {
+            ++failed; msgs << fn + QStringLiteral("：表名不合法（") + name + QStringLiteral("）");
+            continue;
+        }
+        if (db->getAllTableNames().contains(name)) {
+            ++skipped; msgs << fn + QStringLiteral("：表已存在，跳过（") + name + QStringLiteral("）");
+            continue;
+        }
+        if (!db->importTable(name, headers, rows, &err)) {
+            ++failed; msgs << fn + QStringLiteral("：") + err;
+            continue;
+        }
+        ++success;
+    }
+    reloadList();
+    emit tablesChanged();
+    QMessageBox::information(this, tr("批量导入完成"),
+        tr("成功 %1 个，跳过 %2 个，失败 %3 个\n\n%4").arg(success).arg(skipped).arg(failed).arg(msgs.join(QStringLiteral("\n"))));
 }
 
 void TableManagerDialog::exportTable()

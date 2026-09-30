@@ -13,6 +13,7 @@
 #include <tableselectordialog.h>
 
 class QCheckBox;
+class QComboBox;
 class QGroupBox;
 
 QT_BEGIN_NAMESPACE
@@ -55,8 +56,11 @@ private slots:
 
     void show_about();
 
-    //检索字段下拉切换（期刊名称/ISSN/EISSN）
+    //检索字段下拉切换（期刊名称/ISSN/EISSN/CN号）
     void on_comboBox_searchField_currentIndexChanged(int index);
+
+    //数据集范围切换（全部/外文期刊/中文核心期刊）
+    void onScopeChanged(int index);
 
     //主界面数据表勾选面板相关
     void onTableSelectToggled(bool checked);
@@ -103,6 +107,9 @@ private:
 
     QGroupBox *tableSelectGroupBox;//主界面数据表勾选面板
     QList<QCheckBox *> tableCheckBoxes;//主界面数据表勾选项（按 allTableNames 顺序）
+    QComboBox *scopeCombo;//数据集范围切换（全部/外文期刊/中文核心期刊）
+    QGroupBox *foreignGroupBox;//外文期刊分组面板
+    QGroupBox *chineseGroupBox;//中文核心期刊分组面板
 
     //程序运行参数
     QSettings *settings;
